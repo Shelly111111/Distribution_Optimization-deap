@@ -21,7 +21,13 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="eaSimple.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="配送线路优化_deap.py" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="map.json" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in

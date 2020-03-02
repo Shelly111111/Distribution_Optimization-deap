@@ -1,0 +1,226 @@
+{
+  "edges": [
+    {
+      "distance": 5,
+      "note": "备注",
+      "pointId1": 0,
+      "pointId2": 1
+    },
+    {
+      "distance": 8,
+      "note": "备注",
+      "pointId1": 0,
+      "pointId2": 2
+    },
+    {
+      "distance": 7,
+      "note": "备注",
+      "pointId1": 0,
+      "pointId2": 3
+    },
+    {
+      "distance": 4,
+      "note": "备注",
+      "pointId1": 0,
+      "pointId2": 5
+    },
+    {
+      "distance": 12,
+      "note": "备注",
+      "pointId1": 0,
+      "pointId2": 6
+    },
+    {
+      "distance": 9,
+      "note": "备注",
+      "pointId1": 0,
+      "pointId2": 7
+    },
+    {
+      "distance": 12,
+      "note": "备注",
+      "pointId1": 0,
+      "pointId2": 8
+    },
+    {
+      "distance": 6,
+      "note": "备注",
+      "pointId1": 0,
+      "pointId2": 9
+    },
+    {
+      "distance": 5,
+      "note": "备注",
+      "pointId1": 0,
+      "pointId2": 10
+    },
+    {
+      "distance": 4,
+      "note": "备注",
+      "pointId1": 1,
+      "pointId2": 2
+    },
+    {
+      "distance": 3,
+      "note": "备注",
+      "pointId1": 2,
+      "pointId2": 3
+    },
+    {
+      "distance": 4,
+      "note": "备注",
+      "pointId1": 3,
+      "pointId2": 4
+    },
+    {
+      "distance": 5,
+      "note": "备注",
+      "pointId1": 3,
+      "pointId2": 10
+    },
+    {
+      "distance": 2,
+      "note": "备注",
+      "pointId1": 4,
+      "pointId2": 10
+    },
+    {
+      "distance": 2,
+      "note": "备注",
+      "pointId1": 5,
+      "pointId2": 10
+    },
+    {
+      "distance": 3,
+      "note": "备注",
+      "pointId1": 4,
+      "pointId2": 5
+    },
+    {
+      "distance": 10,
+      "note": "备注",
+      "pointId1": 5,
+      "pointId2": 6
+    },
+    {
+      "distance": 7,
+      "note": "备注",
+      "pointId1": 6,
+      "pointId2": 8
+    },
+    {
+      "distance": 4,
+      "note": "备注",
+      "pointId1": 6,
+      "pointId2": 7
+    },
+    {
+      "distance": 5,
+      "note": "备注",
+      "pointId1": 7,
+      "pointId2": 8
+    },
+    {
+      "distance": 9,
+      "note": "备注",
+      "pointId1": 8,
+      "pointId2": 9
+    },
+    {
+      "distance": 3,
+      "note": "备注",
+      "pointId1": 9,
+      "pointId2": 1
+    }
+  ],
+  "vertexes": [
+    {
+      "id": 0,
+      "label": "P (0.0)",
+      "name": "P",
+      "need": 0.0,
+      "note": "没有备注",
+      "type": "centerPoint"
+    },
+    {
+      "id": 1,
+      "label": "A (1.7)",
+      "name": "A",
+      "need": 1.7,
+      "note": "没有备注",
+      "type": "distributionPoint"
+    },
+    {
+      "id": 2,
+      "label": "B (0.8)",
+      "name": "B",
+      "need": 0.8,
+      "note": "没有备注",
+      "type": "distributionPoint"
+    },
+    {
+      "id": 3,
+      "label": "C (1.3)",
+      "name": "C",
+      "need": 1.3,
+      "note": "没有备注",
+      "type": "distributionPoint"
+    },
+    {
+      "id": 4,
+      "label": "D (2.8)",
+      "name": "D",
+      "need": 2.8,
+      "note": "没有备注",
+      "type": "distributionPoint"
+    },
+    {
+      "id": 5,
+      "label": "E (1.9)",
+      "name": "E",
+      "need": 1.9,
+      "note": "没有备注",
+      "type": "distributionPoint"
+    },
+    {
+      "id": 6,
+      "label": "F (3.5)",
+      "name": "F",
+      "need": 3.5,
+      "note": "没有备注",
+      "type": "distributionPoint"
+    },
+    {
+      "id": 7,
+      "label": "G (0.9)",
+      "name": "G",
+      "need": 0.9,
+      "note": "没有备注",
+      "type": "distributionPoint"
+    },
+    {
+      "id": 8,
+      "label": "H (0.3)",
+      "name": "H",
+      "need": 0.3,
+      "note": "没有备注",
+      "type": "distributionPoint"
+    },
+    {
+      "id": 9,
+      "label": "I (1.2)",
+      "name": "I",
+      "need": 1.2,
+      "note": "没有备注",
+      "type": "distributionPoint"
+    },
+    {
+      "id": 10,
+      "label": "中转站 (0.0)",
+      "name": "中转站",
+      "need": 0.0,
+      "note": "没有备注",
+      "type": "transitStationPoint"
+    }
+  ]
+}

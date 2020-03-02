@@ -4,10 +4,17 @@ import matplotlib.pyplot as plt
 from deap import base, tools, creator, algorithms
 import random
 import matplotlib
+#from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+#from PyQt5 import QtCore, QtWidgets, QtGui
+#from PyQt5.QtWidgets import QDialog, QPushButton, QVBoxLayout
 matplotlib.use('TkAgg')
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.pylab import mpl
 from matplotlib.figure import Figure
 from tkinter import *
+import pickle
+import json
+import threading
 
 params = {
     'font.family': 'serif',
@@ -17,59 +24,44 @@ params = {
     'legend.fontsize': 'small'
 }
 plt.rcParams.update(params)
-
-
-root = Tk()
-root.title("配送线路优化")
-
-f = Figure(figsize=(5, 4))
-f_plot = f.add_subplot(111)#111表示1行1列第1个
-
-def draw_picture():
-    dll.Create_Genetic()
-    loss=[]
-    for epoch in Epoch:
-        loss.append(dll.Genetic())
-    f_plot.clear()
-    x = Epoch
-    y = loss
-    f_plot.plot(x, y)
-    canvs.draw()
-
-canvs = FigureCanvasTkAgg(f, root)
-canvs.get_tk_widget().pack(side=TOP, fill=BOTH, expand=1)
-Button(root, text='最小损失', command=draw_picture).pack()
-
-root.mainloop()
-
+train_opt={
+    'ngen' : 400,#迭代次数
+    'cxpb' : 0.8,#遗传概率
+    'mutpb' : 0.1,#变异概率
+    'data_path' : './map.json',
+    'log_file' : './log',
+    'popsize' : 100,#种群大小
+    'checkpoint' : False,#检查点
+    'max' : 9999999,
+    'file_path' : './checkpoint.pkl',
+    'dataDict' : {
+        'MaxLoad' : 5.0,#车辆最大负载
+        'MaxMileage' : 35,#最大巡回里程
+        'ServiceTime' : 0#服务时间
+    }
+}
 from copy import deepcopy
-#-----------------------------------
-## 问题定义
-creator.create('FitnessMin', base.Fitness, weights=(-1.0,)) # 最小化问题
-# 给个体一个routes属性用来记录其表示的路线
-creator.create('Individual', list, fitness=creator.FitnessMin) 
+
 
 #-----------------------------------
 ## 个体编码
 # 用字典存储所有参数 -- 配送中心坐标、顾客坐标、顾客需求、到达时间窗口、服务时间、车型载重量
-dataDict = {}
-# 节点坐标，节点0是配送中心的坐标
-dataDict['NodeCoor'] = [(15,12), (3,13), (3,17), (6,18), (8,17), (10,14),
-                           (14,13), (15,11), (15,15), (17,11), (17,16),
-                            (18,19), (19,9), (19,21), (21,22), (23,9),
-                            (23,22), (24,11), (27,21), (26,6), (26,9),
-                            (27,2), (27,4), (27,17), (28,7), (29,14),
-                            (29,18), (30,1), (30,8), (30,15), (30,17)
-                           ]
-# 将配送中心的需求设置为0
-dataDict['Demand'] = [0,50,50,60,30,90,10,20,10,30,20,30,10,10,10,
-                      40,51,20,20,20,30,30,30,10,60,30,20,30,40,20,20]
-dataDict['MaxLoad'] = 400
-dataDict['ServiceTime'] = 1
+def create_Data_dict(json_path):
+    with open(json_path,'r',encoding='utf-8') as f:
+        js=json.load(f)
+        train_opt['dataDict']['Node']=[]
+        train_opt['dataDict']['Demand']=[]
+        for vex in list(js['vertexes']):
+            train_opt['dataDict']['Node'].append(vex['id'])
+            train_opt['dataDict']['Demand'].append(vex['need'])
+        train_opt['dataDict']['edges']=np.zeros((len(train_opt['dataDict']['Node']),len(train_opt['dataDict']['Node'])),int)
+        for edge in list(js['edges']):
+            train_opt['dataDict']['edges'][edge['pointId1']][edge['pointId2']]=edge['distance']
+            train_opt['dataDict']['edges'][edge['pointId2']][edge['pointId1']]=edge['distance']
 
-def genInd(dataDict = dataDict):
+def genInd(dataDict = train_opt['dataDict']):
     '''生成个体， 对我们的问题来说，困难之处在于车辆数目是不定的'''
-    nCustomer = len(dataDict['NodeCoor']) - 1 # 顾客数量
+    nCustomer = len(dataDict['Node']) - 1 # 顾客数量
     perm = np.random.permutation(nCustomer) + 1 # 生成顾客的随机排列,注意顾客编号为1--n
     pointer = 0 # 迭代指针
     lowPointer = 0 # 指针指向下界
@@ -97,6 +89,8 @@ def genInd(dataDict = dataDict):
 #-----------------------------------
 ## 评价函数
 # 染色体解码
+## 评价函数
+# 染色体解码
 def decodeInd(ind):
     '''从染色体解码回路线片段，每条路径都是以0为开头与结尾'''
     indCopy = np.array(deepcopy(ind)) # 复制ind，防止直接对染色体进行改动
@@ -108,10 +102,7 @@ def decodeInd(ind):
     return routes
 
 def calDist(pos1, pos2):
-    '''计算距离的辅助函数，根据给出的坐标pos1和pos2，返回两点之间的距离
-    输入： pos1, pos2 -- (x,y)元组
-    输出： 欧几里得距离'''
-    return np.sqrt((pos1[0] - pos2[0])*(pos1[0] - pos2[0]) + (pos1[1] - pos2[1])*(pos1[1] - pos2[1]))
+    return train_opt['max'] if train_opt['dataDict']['edges'][pos1][pos2]==0 else train_opt['dataDict']['edges'][pos1][pos2]
 
 #
 def loadPenalty(routes):
@@ -119,17 +110,21 @@ def loadPenalty(routes):
     penalty = 0
     # 计算每条路径的负载，取max(0, routeLoad - maxLoad)计入惩罚项
     for eachRoute in routes:
-        routeLoad = np.sum([dataDict['Demand'][i] for i in eachRoute])
-        penalty += max(0, routeLoad - dataDict['MaxLoad'])
+        routeLoad = np.sum([train_opt['dataDict']['Demand'][i] for i in eachRoute])
+        if max(0, routeLoad - train_opt['dataDict']['MaxLoad'])!=0:
+            penalty += train_opt['max']
     return penalty
 
-def calRouteLen(routes,dataDict=dataDict):
+def calRouteLen(routes,dataDict=train_opt['dataDict']):
     '''辅助函数，返回给定路径的总长度'''
     totalDistance = 0 # 记录各条路线的总长度
     for eachRoute in routes:
         # 从每条路径中抽取相邻两个节点，计算节点距离并进行累加
+        paraDistance=0
         for i,j in zip(eachRoute[0::], eachRoute[1::]):
-            totalDistance += calDist(dataDict['NodeCoor'][i], dataDict['NodeCoor'][j])    
+            paraDistance += calDist(dataDict['Node'][i], dataDict['Node'][j])
+        paraDistance if paraDistance <= dataDict['MaxMileage'] else train_opt['max']
+        totalDistance+=paraDistance
     return totalDistance
 
 def evaluate(ind):
@@ -137,6 +132,19 @@ def evaluate(ind):
     routes = decodeInd(ind) # 将个体解码为路线
     totalDistance = calRouteLen(routes)
     return (totalDistance + loadPenalty(routes)),
+    
+def min(ls):
+    '''最小值函数，返回符合约束的最小值'''
+    lst=[ _dist for _dist in ls if _dist[0] < train_opt['max']]
+    return None if len(lst)==0 else np.min(lst).astype(int)
+def avg(ls):
+    '''平均值函数，返回符合约束的平均值'''
+    lst=[ _dist for _dist in ls if _dist[0] < train_opt['max']]
+    return None if len(lst)==0 else np.mean(lst)
+def std(ls):
+    '''标准差值函数，返回符合约束的标准差值'''
+    lst=[ _dist for _dist in ls if _dist[0] < train_opt['max']]
+    return None if len(lst)==0 else np.std(lst)
 #-----------------------------------
 ## 交叉操作
 def genChild(ind1, ind2, nTrail=5):
@@ -180,7 +188,7 @@ def crossover(ind1, ind2):
 
 #-----------------------------------
 ## 突变操作
-def opt(route,dataDict=dataDict, k=2):
+def opt(route,dataDict=train_opt['dataDict'], k=2):
     # 用2-opt算法优化路径
     # 输入：
     # route -- sequence，记录路径
@@ -214,69 +222,10 @@ def mutate(ind):
     ind[:] = child+[0]
     return ind,
 
-#-----------------------------------
-## 注册遗传算法操作
-toolbox = base.Toolbox()
-toolbox.register('individual', tools.initIterate, creator.Individual, genInd)
-toolbox.register('population', tools.initRepeat, list, toolbox.individual)
-toolbox.register('evaluate', evaluate)
-toolbox.register('select', tools.selTournament, tournsize=2)
-toolbox.register('mate', crossover)
-toolbox.register('mutate', mutate)
-
-## 生成初始族群
-toolbox.popSize = 100
-pop = toolbox.population(toolbox.popSize)
-
-## 记录迭代数据
-stats=tools.Statistics(key=lambda ind: ind.fitness.values)
-stats.register('min', np.min)
-stats.register('avg', np.mean)
-stats.register('std', np.std)
-hallOfFame = tools.HallOfFame(maxsize=1)
-
-## 遗传算法参数
-toolbox.ngen = 400
-toolbox.cxpb = 0.8
-toolbox.mutpb = 0.1
-
-print("-----------------------------")
 ## 遗传算法主程序
 ## 遗传算法主程序
 
 def varOr(population, toolbox, lambda_, cxpb, mutpb):
-    """Part of an evolutionary algorithm applying only the variation part
-    (crossover, mutation **or** reproduction). The modified individuals have
-    their fitness invalidated. The individuals are cloned so returned
-    population is independent of the input population.
-
-    :param population: A list of individuals to vary.
-    :param toolbox: A :class:`~deap.base.Toolbox` that contains the evolution
-                    operators.
-    :param lambda\_: The number of children to produce
-    :param cxpb: The probability of mating two individuals.
-    :param mutpb: The probability of mutating an individual.
-    :returns: The final population.
-
-    The variation goes as follow. On each of the *lambda_* iteration, it
-    selects one of the three operations; crossover, mutation or reproduction.
-    In the case of a crossover, two individuals are selected at random from
-    the parental population :math:`P_\mathrm{p}`, those individuals are cloned
-    using the :meth:`toolbox.clone` method and then mated using the
-    :meth:`toolbox.mate` method. Only the first child is appended to the
-    offspring population :math:`P_\mathrm{o}`, the second child is discarded.
-    In the case of a mutation, one individual is selected at random from
-    :math:`P_\mathrm{p}`, it is cloned and then mutated using using the
-    :meth:`toolbox.mutate` method. The resulting mutant is appended to
-    :math:`P_\mathrm{o}`. In the case of a reproduction, one individual is
-    selected at random from :math:`P_\mathrm{p}`, cloned and appended to
-    :math:`P_\mathrm{o}`.
-
-    This variation is named *Or* because an offspring will never result from
-    both operations crossover and mutation. The sum of both probabilities
-    shall be in :math:`[0, 1]`, the reproduction probability is
-    1 - *cxpb* - *mutpb*.
-    """
     assert (cxpb + mutpb) <= 1.0, (
         "The sum of the crossover and mutation probabilities must be smaller "
         "or equal to 1.0.")
@@ -299,54 +248,8 @@ def varOr(population, toolbox, lambda_, cxpb, mutpb):
 
     return offspring
 
-def eaMuPlusLambda(population, toolbox, mu, lambda_, cxpb, mutpb, ngen,
+def eaMuPlusLambda(gui, start_gen, population, toolbox, mu, lambda_, cxpb, mutpb, ngen,
                    stats=None, halloffame=None, verbose=__debug__):
-    """This is the :math:`(\mu + \lambda)` evolutionary algorithm.
-
-    :param population: A list of individuals.
-    :param toolbox: A :class:`~deap.base.Toolbox` that contains the evolution
-                    operators.
-    :param mu: The number of individuals to select for the next generation.
-    :param lambda\_: The number of children to produce at each generation.
-    :param cxpb: The probability that an offspring is produced by crossover.
-    :param mutpb: The probability that an offspring is produced by mutation.
-    :param ngen: The number of generation.
-    :param stats: A :class:`~deap.tools.Statistics` object that is updated
-                  inplace, optional.
-    :param halloffame: A :class:`~deap.tools.HallOfFame` object that will
-                       contain the best individuals, optional.
-    :param verbose: Whether or not to log the statistics.
-    :returns: The final population
-    :returns: A class:`~deap.tools.Logbook` with the statistics of the
-              evolution.
-
-    The algorithm takes in a population and evolves it in place using the
-    :func:`varOr` function. It returns the optimized population and a
-    :class:`~deap.tools.Logbook` with the statistics of the evolution. The
-    logbook will contain the generation number, the number of evaluations for
-    each generation and the statistics if a :class:`~deap.tools.Statistics` is
-    given as argument. The *cxpb* and *mutpb* arguments are passed to the
-    :func:`varOr` function. The pseudocode goes as follow ::
-
-        evaluate(population)
-        for g in range(ngen):
-            offspring = varOr(population, toolbox, lambda_, cxpb, mutpb)
-            evaluate(offspring)
-            population = select(population + offspring, mu)
-
-    First, the individuals having an invalid fitness are evaluated. Second,
-    the evolutionary loop begins by producing *lambda_* offspring from the
-    population, the offspring are generated by the :func:`varOr` function. The
-    offspring are then evaluated and the next generation population is
-    selected from both the offspring **and** the population. Finally, when
-    *ngen* generations are done, the algorithm returns a tuple with the final
-    population and a :class:`~deap.tools.Logbook` of the evolution.
-
-    This function expects :meth:`toolbox.mate`, :meth:`toolbox.mutate`,
-    :meth:`toolbox.select` and :meth:`toolbox.evaluate` aliases to be
-    registered in the toolbox. This algorithm uses the :func:`varOr`
-    variation.
-    """
     logbook = tools.Logbook()
     logbook.header = ['gen', 'nevals'] + (stats.fields if stats else [])#打印的头部
 
@@ -360,12 +263,21 @@ def eaMuPlusLambda(population, toolbox, mu, lambda_, cxpb, mutpb, ngen,
         halloffame.update(population)
 
     record = stats.compile(population) if stats is not None else {}
-    logbook.record(gen=0, nevals=len(invalid_ind), **record)
+    logbook.record(gen=start_gen, nevals=len(invalid_ind), **record)
+    log = open(train_opt['log_file'],'w')
     if verbose:
-        print(logbook.stream)
+        gui.f_plot.clear()
+        minFit = logbook.select('min')
+        avgFit = logbook.select('avg')
+        gui.f_plot.plot(minFit, 'b-', label='Minimum Fitness')
+        gui.f_plot.plot(avgFit, 'r-', label='Average Fitness')
+        gui.canvs.draw()
+        stream=logbook.stream
+        log.write(stream)
+        print(stream)
 
     # Begin the generational process
-    for gen in range(1, ngen + 1):
+    for gen in range(start_gen+1, ngen + 1):
         # Vary the population
         offspring = varOr(population, toolbox, lambda_, cxpb, mutpb)
 
@@ -386,21 +298,23 @@ def eaMuPlusLambda(population, toolbox, mu, lambda_, cxpb, mutpb, ngen,
         record = stats.compile(population) if stats is not None else {}
         logbook.record(gen=gen, nevals=len(invalid_ind), **record)
         if verbose:
-            print(logbook.stream)
+            minFit = logbook.select('min')
+            avgFit = logbook.select('avg')
+            if gen % 1==0:
+                gui.f_plot.clear()
+                gui.f_plot.plot(minFit, 'b-', label='Minimum Fitness')
+                gui.f_plot.plot(avgFit, 'r-', label='Average Fitness')
+                gui.canvs.draw()
+            stream=logbook.stream
+            log.write(stream)
+            print(stream)
+        if gen % 20 == 0:
+            cp = dict(population=population, generation=gen, halloffame=halloffame,rndstate=random.getstate())
+            with open(train_opt['file_path'], "wb") as cp_file:
+                pickle.dump(cp, cp_file,protocol = pickle.HIGHEST_PROTOCOL)
 
+    log.close()
     return population, logbook
-
-
-pop,logbook=eaMuPlusLambda(pop, toolbox, mu=toolbox.popSize, 
-                   lambda_=toolbox.popSize,cxpb=toolbox.cxpb, mutpb=toolbox.mutpb,
-                   ngen=toolbox.ngen ,stats=stats, halloffame=hallOfFame, verbose=True)
-
-
-
-#pop,logbook=algorithms.eaMuPlusLambda(pop, toolbox, mu=toolbox.popSize, 
-#                   lambda_=toolbox.popSize,cxpb=toolbox.cxpb, mutpb=toolbox.mutpb,
-#                   ngen=toolbox.ngen ,stats=stats, halloffame=hallOfFame, verbose=True)
-print('-----------------------------')
 
 from pprint import pprint
 
@@ -411,15 +325,108 @@ def calLoad(routes):
         loads.append(routeLoad)
     return loads
 
-bestInd = hallOfFame.items[0]
-distributionPlan = decodeInd(bestInd)
-bestFit = bestInd.fitness.values
-print('最佳运输计划为：')
-pprint(distributionPlan)
-print('最短运输距离为：')
-print(bestFit)
-print('各辆车上负载为：')
-print(calLoad(distributionPlan))
+
+def Genetic(gui):
+    #-----------------------------------
+    ## 问题定义
+    creator.create('FitnessMin', base.Fitness, weights=(-1.0,)) # 最小化问题
+    # 给个体一个routes属性用来记录其表示的路线
+    creator.create('Individual', list, fitness=creator.FitnessMin)
+
+    #-----------------------------------
+    ## 注册遗传算法操作
+    toolbox = base.Toolbox()
+    toolbox.register('individual', tools.initIterate, creator.Individual, genInd)
+    toolbox.register('population', tools.initRepeat, list, toolbox.individual)
+    toolbox.register('evaluate', evaluate)
+    toolbox.register('select', tools.selTournament, tournsize=2)
+    toolbox.register('mate', crossover)
+    toolbox.register('mutate', mutate)
+
+    ## 生成初始族群
+    toolbox.popSize = 100
+    if train_opt['checkpoint']:
+        with open(train_opt['file_path'], "rb") as cp_file:
+            cp = pickle.load(cp_file)
+        pop = cp["population"]
+        start_gen = cp["generation"]
+        hallOfFame = cp["halloffame"]
+        random.setstate(cp["rndstate"])
+    else:
+        pop = toolbox.population(toolbox.popSize)
+        start_gen = 0
+        hallOfFame = tools.HallOfFame(maxsize=1)
+
+    ## 记录迭代数据
+    stats=tools.Statistics(key=lambda ind: ind.fitness.values)
+    stats.register('min', min)
+    stats.register('avg', avg)
+    stats.register('std', std)
+
+    ## 遗传算法参数
+    toolbox.ngen = train_opt['ngen']
+    toolbox.cxpb = train_opt['cxpb']
+    toolbox.mutpb = train_opt['mutpb']
+
+    print("-----------------------------")
+
+    pop,logbook=eaMuPlusLambda(gui, start_gen, pop, toolbox, mu=toolbox.popSize, 
+                   lambda_=toolbox.popSize,cxpb=toolbox.cxpb, mutpb=toolbox.mutpb,
+                   ngen=toolbox.ngen ,stats=stats, halloffame=hallOfFame, verbose=True)
+
+
+
+    #pop,logbook=algorithms.eaMuPlusLambda(pop, toolbox, mu=toolbox.popSize, 
+    #                   lambda_=toolbox.popSize,cxpb=toolbox.cxpb, mutpb=toolbox.mutpb,
+    #                   ngen=toolbox.ngen ,stats=stats, halloffame=hallOfFame, verbose=True)
+    print('-----------------------------')
+
+    bestInd = hallOfFame.items[0]
+    distributionPlan = decodeInd(bestInd)
+    bestFit = bestInd.fitness.values
+    print('最佳运输计划为：')
+    pprint(distributionPlan)
+    print('最短运输距离为：')
+    print(bestFit)
+    print('各辆车上负载为：')
+    print(calLoad(distributionPlan))
+
+#GUI窗口类
+class Control():
+    #定义GUI界面
+    def __init__(self, master, fuc):
+        self.parent = master
+        self.parent.title("配送线路优化")
+        frame = Frame(master)
+        self.f = Figure(figsize=(5, 4))
+        self.f_plot = self.f.add_subplot(111)#111表示1行1列第1个
+        self.Btn=Button(frame, text='最小损失', command=fuc).pack()
+        self.canvs = FigureCanvasTkAgg(self.f, self.parent)
+        frame.pack()
+
+#具体功能类
+class ThreadClient():
+    def __init__(self, master):
+        self.master = master 
+        self.gui = Control(master, self.starting) #将我们定义的GUI类赋给服务类的属性，将执行的功能函数作为参数传入
+    def starting(self):
+        self.thread = threading.Thread(target = Genetic(self.gui))
+        self.thread.start()
+
+
+create_Data_dict(train_opt['data_path'])
+
+root = Tk()
+
+tool = ThreadClient(root)
+
+tool.gui.canvs.get_tk_widget().pack(side=TOP, fill=BOTH, expand=1)
+
+
+#canvs.get_tk_widget().pack(side=TOP, fill=BOTH, expand=1)
+
+root.mainloop()
+
 """
 # 画出迭代图
 minFit = logbook.select('min')
@@ -431,13 +438,3 @@ plt.ylabel('Fitness')
 plt.legend(loc='best')
 plt.show()
 """
-# 计算结果
-#最佳运输计划为：
-#[[0, 9, 12, 19, 22, 24, 25, 17, 0],
-# [0, 6, 4, 3, 2, 1, 5, 0],
-# [0, 7, 0],
-# [0, 8, 10, 11, 13, 14, 16, 18, 23, 26, 30, 29, 28, 27, 21, 20, 15, 0]]
-#最短运输距离为：
-#(136.93713103610511,)
-#各辆车上负载为：
-#[200, 290, 20, 391]
