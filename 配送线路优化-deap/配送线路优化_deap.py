@@ -35,8 +35,17 @@ train_opt={
     'max' : 9999999,
     'file_path' : './checkpoint.pkl',
     'dataDict' : {
-        'MaxLoad' : 5.0,#车辆最大负载
-        'MaxMileage' : 35,#最大巡回里程
+        'Vehicle_type_num' : 2,
+        0 : {
+            'MaxLoad' : 5.0,#车辆最大负载
+            'MaxMileage' : 35,#最大巡回里程
+            'Num' : 3
+            },
+        1 : {
+            'MaxLoad' : 2.0,
+            'MaxMileage' : 35,#最大巡回里程
+            'Num' : 5
+            },
         'ServiceTime' : 0#服务时间
     }
 }
@@ -44,6 +53,31 @@ from copy import deepcopy
 
 
 #-----------------------------------
+def dijkstra(s):
+    V = len(train_opt['dataDict']['Node'])
+    # 标记数组：used[v]值为False说明改顶点还没有访问过，在S中，否则在U中！
+    used = [False for _ in range(V)]
+    distance = [train_opt['max'] for _ in range(V)]
+    distance[s] = 0
+    while True:
+        # v在这里相当于是一个哨兵，对包含起点s做统一处理！
+        v = -1
+        # 从未使用过的顶点中选择一个距离最小的顶点
+        for u in range(V):
+            if not used[u] and (v == -1 or distance[u] < distance[v]):
+                v = u
+        if v == -1:
+            # 说明所有顶点都维护到S中了！
+            break
+
+        # 将选定的顶点加入到S中, 同时进行距离更新
+        used[v] = True
+        # 更新U中各个顶点到起点s的距离。之所以更新U中顶点的距离，是由于上一步中确定了k是求出最短路径的顶点，从而可以利用k来更新其它顶点的距离；例如，(s,v)的距离可能大于(s,k)+(k,v)的距离。
+        for u in range(V):
+            distance[u] = min(distance[u], distance[v] + train_opt['dataDict']['edges'][v][u])
+    for i in range(V):
+        train_opt['dataDict']['edges'][s][i]=distance[i]
+
 ## 个体编码
 # 用字典存储所有参数 -- 配送中心坐标、顾客坐标、顾客需求、到达时间窗口、服务时间、车型载重量
 def create_Data_dict(json_path):
@@ -54,10 +88,13 @@ def create_Data_dict(json_path):
         for vex in list(js['vertexes']):
             train_opt['dataDict']['Node'].append(vex['id'])
             train_opt['dataDict']['Demand'].append(vex['need'])
-        train_opt['dataDict']['edges']=np.zeros((len(train_opt['dataDict']['Node']),len(train_opt['dataDict']['Node'])),int)
+        _l=len(train_opt['dataDict']['Node'])
+        train_opt['dataDict']['edges']=np.ones((_l,_l),int) * train_opt['max']
         for edge in list(js['edges']):
             train_opt['dataDict']['edges'][edge['pointId1']][edge['pointId2']]=edge['distance']
             train_opt['dataDict']['edges'][edge['pointId2']][edge['pointId1']]=edge['distance']
+    for i in range(_l):
+        dijkstra(i)
 
 def genInd(dataDict = train_opt['dataDict']):
     '''生成个体， 对我们的问题来说，困难之处在于车辆数目是不定的'''
@@ -65,21 +102,31 @@ def genInd(dataDict = train_opt['dataDict']):
     perm = np.random.permutation(nCustomer) + 1 # 生成顾客的随机排列,注意顾客编号为1--n
     pointer = 0 # 迭代指针
     lowPointer = 0 # 指针指向下界
+    vehicle_num = 0
+    vehicle_type = 0
     permSlice = []
     # 当指针不指向序列末尾时
     while pointer < nCustomer -1:
         vehicleLoad = 0
         # 当不超载时，继续装载
-        while (vehicleLoad < dataDict['MaxLoad']) and (pointer < nCustomer -1):
+        while vehicleLoad < dataDict[vehicle_type]['MaxLoad'] and (pointer < nCustomer -1):
             vehicleLoad += dataDict['Demand'][perm[pointer]]
             pointer += 1
-        if lowPointer+1 < pointer:
+        vehicle_num += 1
+        if lowPointer + 1 < pointer:#在负载上限上只取部分，生成一条路径
             tempPointer = np.random.randint(lowPointer+1, pointer)
             permSlice.append(perm[lowPointer:tempPointer].tolist())
             lowPointer = tempPointer
             pointer = tempPointer
         else:
-            permSlice.append(perm[lowPointer::].tolist())
+            pointer = nCustomer
+            permSlice.append(perm[lowPointer:pointer].tolist())
+            break
+        if vehicle_num >= dataDict[vehicle_type]['Num']:
+            vehicle_num = 0
+            vehicle_type += 1
+        if vehicle_type >= dataDict['Vehicle_type_num']:
+            permSlice.append(perm[pointer:nCustomer -1].tolist())
             break
     # 将路线片段合并为染色体
     ind = [0]
@@ -102,29 +149,44 @@ def decodeInd(ind):
     return routes
 
 def calDist(pos1, pos2):
-    return train_opt['max'] if train_opt['dataDict']['edges'][pos1][pos2]==0 else train_opt['dataDict']['edges'][pos1][pos2]
+    return train_opt['dataDict']['edges'][pos1][pos2]
 
-#
 def loadPenalty(routes):
     '''辅助函数，因为在交叉和突变中可能会产生不符合负载约束的个体，需要对不合要求的个体进行惩罚'''
     penalty = 0
-    # 计算每条路径的负载，取max(0, routeLoad - maxLoad)计入惩罚项
+    vehicle_num = 0
+    vehicle_type = 0
+    # 计算每条路径的负载
     for eachRoute in routes:
+        if vehicle_type >= train_opt['dataDict']['Vehicle_type_num']:
+            return train_opt['max']
         routeLoad = np.sum([train_opt['dataDict']['Demand'][i] for i in eachRoute])
-        if max(0, routeLoad - train_opt['dataDict']['MaxLoad'])!=0:
+        if routeLoad - train_opt['dataDict'][vehicle_type]['MaxLoad'] > 0:
             penalty += train_opt['max']
+        vehicle_num += 1
+        if vehicle_num >= train_opt['dataDict'][vehicle_type]['Num']:
+            vehicle_num = 0
+            vehicle_type += 1
     return penalty
 
 def calRouteLen(routes,dataDict=train_opt['dataDict']):
     '''辅助函数，返回给定路径的总长度'''
     totalDistance = 0 # 记录各条路线的总长度
+    vehicle_num = 0
+    vehicle_type = 0
     for eachRoute in routes:
         # 从每条路径中抽取相邻两个节点，计算节点距离并进行累加
+        if vehicle_type >= dataDict['Vehicle_type_num']:
+            return train_opt['max']
         paraDistance=0
         for i,j in zip(eachRoute[0::], eachRoute[1::]):
             paraDistance += calDist(dataDict['Node'][i], dataDict['Node'][j])
-        paraDistance if paraDistance <= dataDict['MaxMileage'] else train_opt['max']
-        totalDistance+=paraDistance
+        paraDistance if paraDistance <= dataDict[vehicle_type]['MaxMileage'] else train_opt['max']
+        vehicle_num += 1
+        if vehicle_num >= dataDict[vehicle_type]['Num']:
+            vehicle_num = 0
+            vehicle_type += 1
+        totalDistance += paraDistance
     return totalDistance
 
 def evaluate(ind):
@@ -133,15 +195,15 @@ def evaluate(ind):
     totalDistance = calRouteLen(routes)
     return (totalDistance + loadPenalty(routes)),
     
-def min(ls):
+def _min(ls):
     '''最小值函数，返回符合约束的最小值'''
     lst=[ _dist for _dist in ls if _dist[0] < train_opt['max']]
-    return None if len(lst)==0 else np.min(lst).astype(int)
-def avg(ls):
+    return None if len(lst)==0 else np.min(lst)
+def _avg(ls):
     '''平均值函数，返回符合约束的平均值'''
     lst=[ _dist for _dist in ls if _dist[0] < train_opt['max']]
     return None if len(lst)==0 else np.mean(lst)
-def std(ls):
+def _std(ls):
     '''标准差值函数，返回符合约束的标准差值'''
     lst=[ _dist for _dist in ls if _dist[0] < train_opt['max']]
     return None if len(lst)==0 else np.std(lst)
@@ -321,7 +383,7 @@ from pprint import pprint
 def calLoad(routes):
     loads = []
     for eachRoute in routes:
-        routeLoad = np.sum([dataDict['Demand'][i] for i in eachRoute])
+        routeLoad = np.sum([train_opt['dataDict']['Demand'][i] for i in eachRoute])
         loads.append(routeLoad)
     return loads
 
@@ -359,9 +421,9 @@ def Genetic(gui):
 
     ## 记录迭代数据
     stats=tools.Statistics(key=lambda ind: ind.fitness.values)
-    stats.register('min', min)
-    stats.register('avg', avg)
-    stats.register('std', std)
+    stats.register('min', _min)
+    stats.register('avg', _avg)
+    stats.register('std', _std)
 
     ## 遗传算法参数
     toolbox.ngen = train_opt['ngen']
