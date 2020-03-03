@@ -46,7 +46,9 @@ train_opt={
             'MaxMileage' : 35,#最大巡回里程
             'Num' : 5
             },
-        'ServiceTime' : 0#服务时间
+        'ServiceTime' : 5,#服务时间，单位分钟
+        'MaxServiceTime' : 480,#单位分钟
+        'speed' : 10#单位千米/小时
     }
 }
 from copy import deepcopy
@@ -153,7 +155,6 @@ def calDist(pos1, pos2):
 
 def loadPenalty(routes):
     '''辅助函数，因为在交叉和突变中可能会产生不符合负载约束的个体，需要对不合要求的个体进行惩罚'''
-    penalty = 0
     vehicle_num = 0
     vehicle_type = 0
     # 计算每条路径的负载
@@ -161,39 +162,44 @@ def loadPenalty(routes):
         if vehicle_type >= train_opt['dataDict']['Vehicle_type_num']:
             return train_opt['max']
         routeLoad = np.sum([train_opt['dataDict']['Demand'][i] for i in eachRoute])
-        if routeLoad - train_opt['dataDict'][vehicle_type]['MaxLoad'] > 0:
-            penalty += train_opt['max']
+        if routeLoad > train_opt['dataDict'][vehicle_type]['MaxLoad']:
+            return train_opt['max']
         vehicle_num += 1
         if vehicle_num >= train_opt['dataDict'][vehicle_type]['Num']:
             vehicle_num = 0
             vehicle_type += 1
-    return penalty
+    return 0
 
 def calRouteLen(routes,dataDict=train_opt['dataDict']):
-    '''辅助函数，返回给定路径的总长度'''
+    '''辅助函数，返回给定路径的总长度，总服务时长'''
     totalDistance = 0 # 记录各条路线的总长度
+    totalServiceTime = 0
+    paraServiceTime = 0
     vehicle_num = 0
     vehicle_type = 0
     for eachRoute in routes:
         # 从每条路径中抽取相邻两个节点，计算节点距离并进行累加
         if vehicle_type >= dataDict['Vehicle_type_num']:
-            return train_opt['max']
-        paraDistance=0
+            return train_opt['max'],train_opt['max']
+        paraDistance = 0
         for i,j in zip(eachRoute[0::], eachRoute[1::]):
             paraDistance += calDist(dataDict['Node'][i], dataDict['Node'][j])
-        paraDistance if paraDistance <= dataDict[vehicle_type]['MaxMileage'] else train_opt['max']
+        paraServiceTime = (len(eachRoute)-2) * dataDict['ServiceTime'] + int(paraDistance / dataDict['speed'] * 60)
+        if paraDistance > dataDict[vehicle_type]['MaxMileage'] or paraServiceTime > dataDict['MaxServiceTime']:
+            return train_opt['max'],train_opt['max']
         vehicle_num += 1
         if vehicle_num >= dataDict[vehicle_type]['Num']:
             vehicle_num = 0
             vehicle_type += 1
         totalDistance += paraDistance
-    return totalDistance
+        totalServiceTime += paraServiceTime
+    return totalDistance , round(totalServiceTime / 60 , 2)
 
 def evaluate(ind):
     '''评价函数，返回解码后路径的总长度，'''
     routes = decodeInd(ind) # 将个体解码为路线
-    totalDistance = calRouteLen(routes)
-    return (totalDistance + loadPenalty(routes)),
+    totalDistance , totalServiceTime = calRouteLen(routes)
+    return (totalDistance + totalServiceTime + loadPenalty(routes)),
     
 def _min(ls):
     '''最小值函数，返回符合约束的最小值'''
@@ -233,7 +239,8 @@ def genChild(ind1, ind2, nTrail=5):
         # 将先前取出的subroute1添加入打断结果，得到完整的配送方案
         breakSubroute.append(subroute1)
         # 评价生成的子路径
-        routesFit = calRouteLen(breakSubroute) + loadPenalty(breakSubroute)
+        totalDistance,totalServiceTime = calRouteLen(breakSubroute)
+        routesFit = totalDistance + totalServiceTime + loadPenalty(breakSubroute)
         if routesFit < bestFit:
             bestRoute = breakSubroute
             bestFit = routesFit
@@ -257,16 +264,17 @@ def opt(route,dataDict=train_opt['dataDict'], k=2):
     # 输出： 优化后的路径optimizedRoute及其路径长度
     nCities = len(route) # 城市数
     optimizedRoute = route # 最优路径
-    minDistance = calRouteLen([route]) # 最优路径长度
+    minDistance , minServiceTime = calRouteLen([route]) # 最优路径长度
     for i in range(1,nCities-2):
         for j in range(i+k, nCities):
             if j-i == 1:
                 continue
             reversedRoute = route[:i]+route[i:j][::-1]+route[j:]# 翻转后的路径
-            reversedRouteDist = calRouteLen([reversedRoute])
+            reversedRouteDist , reversedServiceTime = calRouteLen([reversedRoute])
             # 如果翻转后路径更优，则更新最优解
             if  reversedRouteDist < minDistance:
                 minDistance = reversedRouteDist
+                minServiceTime = reversedServiceTime
                 optimizedRoute = reversedRoute
     return optimizedRoute
 
@@ -448,8 +456,10 @@ def Genetic(gui):
     bestFit = bestInd.fitness.values
     print('最佳运输计划为：')
     pprint(distributionPlan)
-    print('最短运输距离为：')
+    print('最佳适应距离为：')
     print(bestFit)
+    print('最短运输距离、服务时长为：')
+    print(calRouteLen(distributionPlan))
     print('各辆车上负载为：')
     print(calLoad(distributionPlan))
 
