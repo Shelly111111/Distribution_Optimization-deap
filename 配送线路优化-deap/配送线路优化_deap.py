@@ -28,27 +28,27 @@ train_opt={
     'ngen' : 400,#迭代次数
     'cxpb' : 0.8,#遗传概率
     'mutpb' : 0.1,#变异概率
-    'data_path' : './map.json',
+    'data_path' : './graph.json',
     'log_file' : './log',
-    'popsize' : 100,#种群大小
+    'popsize' : 200,#种群大小
     'checkpoint' : False,#检查点
     'max' : 9999999,
     'file_path' : './checkpoint.pkl',
     'dataDict' : {
         'Vehicle_type_num' : 2,
         0 : {
-            'MaxLoad' : 5.0,#车辆最大负载
-            'MaxMileage' : 35,#最大巡回里程
-            'Num' : 3
+            'MaxLoad' : 30.0,#车辆最大负载
+            'MaxMileage' : 400,#最大巡回里程
+            'Num' : 18
             },
         1 : {
-            'MaxLoad' : 2.0,
-            'MaxMileage' : 35,#最大巡回里程
-            'Num' : 5
+            'MaxLoad' : 12.0,
+            'MaxMileage' : 400,#最大巡回里程
+            'Num' : 10
             },
         'ServiceTime' : 5,#服务时间，单位分钟
         'MaxServiceTime' : 480,#单位分钟
-        'speed' : 10#单位千米/小时
+        'speed' : 60#单位千米/小时
     }
 }
 from copy import deepcopy
@@ -392,7 +392,7 @@ def calLoad(routes):
     loads = []
     for eachRoute in routes:
         routeLoad = np.sum([train_opt['dataDict']['Demand'][i] for i in eachRoute])
-        loads.append(routeLoad)
+        loads.append(round(routeLoad,2))
     return loads
 
 
@@ -414,7 +414,7 @@ def Genetic(gui):
     toolbox.register('mutate', mutate)
 
     ## 生成初始族群
-    toolbox.popSize = 100
+    toolbox.popSize = train_opt['popsize']
     if train_opt['checkpoint']:
         with open(train_opt['file_path'], "rb") as cp_file:
             cp = pickle.load(cp_file)

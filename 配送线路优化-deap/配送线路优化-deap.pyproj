@@ -21,7 +21,13 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Create_Date.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="eaSimple.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Tabu.py">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="配送线路优化_deap.py" />
