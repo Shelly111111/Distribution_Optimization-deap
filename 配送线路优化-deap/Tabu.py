@@ -84,9 +84,21 @@ class Tabu:
         #计算当前路径的长度 与原博客里的函数功能相同
         routes = self.decodeInd(road)
         distance = 0
+        vehicle_type = 0
+        vehicle_num = 0
         for eachRoute in routes:
+            if vehicle_type >= train_opt['dataDict']['Vehicle_type_num']:
+                return train_opt['max']
+            paraDistance = 0
             for i,j in zip(eachRoute[0::], eachRoute[1::]):
-                distance += self.edges[i][j]
+                paraDistance += self.edges[i][j]
+            if paraDistance > train_opt['dataDict'][vehicle_type]['MaxMileage']:
+                return train_opt['max']
+            distance += paraDistance
+            vehicle_num += 1
+            if vehicle_num >= train_opt['dataDict'][vehicle_type]['Num']:
+                vehicle_num = 0
+                vehicle_type += 1
         """
         d=-1
         st=0,0
@@ -169,26 +181,30 @@ class Tabu:
     def step(self):
         #搜索一步路找出当前下应该搜寻的下一条路
         routes=self.curroute
-        i=0
+        i = 0
         pre_routes = self.opt(routes)
         if int(self.costroad(pre_routes)) not in self.tabu:    #产生不在禁忌表中的路径
             self.prepare.append(pre_routes.copy())
             i += 1
         while i < self.preparelen:     #产生候选路径
             pre_routes = self.randomroute()
+            print('正在生成第{0}条候选路径'.format(i))
             v = 0
             while int(self.costroad(pre_routes)) in self.tabu:
-                pre_routes = sele.randomroute()
-                print('随机生成：第{0}条路径'.format(v))
+                pre_routes = self.randomroute()
+                if v % 500 == 0:
+                    print('随机生成：第{0}条路径'.format(v))
                 v += 1
+            print(pre_routes)
+            print('该路径长度{0}'.format(self.costroad(pre_routes)))
             self.prepare.append(pre_routes.copy())
-            i+=1
+            i += 1
         cal=[]
         for route in self.prepare:
             cal.append(self.costroad(route))
         mincal=min(cal)
         min_route=self.prepare[cal.index(mincal)]     #选出候选路径里最好的一条
-        if mincal<self.bestcost:    
+        if mincal<self.bestcost:
             self.bestcost=mincal
             self.bestroute=min_route.copy()      #如果他比最好的还要好，那么记录下来
         self.tabu.append(mincal)#int(mrt))    #这里本来要加 mrt的 ，可是mrt是路径，要对比起来麻烦，这里假设每条路是由长度决定的
@@ -230,12 +246,11 @@ t=Tabu()
 #print(t.route)
 print(t.bestcost)
 print(t.curroute)
-for i in range(200):
+for i in range(10):
     t.step()
-    if i%2==0:
-        print(t.bestcost)
-        print(t.bestroute)
-        #print(t.curroute)
+    print(t.bestcost)
+    print(t.bestroute)
+    #print(t.curroute)
 
 print('ok')
 #print(timeit.timeit(stmt="t.step()", number=1000,globals=globals()))

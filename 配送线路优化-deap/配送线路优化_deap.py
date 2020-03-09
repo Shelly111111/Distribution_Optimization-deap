@@ -1,5 +1,6 @@
 ## 环境设定
 import numpy as np
+import time
 import matplotlib.pyplot as plt
 from deap import base, tools, creator, algorithms
 import random
@@ -150,9 +151,6 @@ def decodeInd(ind):
         routes.append(ind[i:j]+[0])
     return routes
 
-def calDist(pos1, pos2):
-    return train_opt['dataDict']['edges'][pos1][pos2]
-
 def loadPenalty(routes):
     '''辅助函数，因为在交叉和突变中可能会产生不符合负载约束的个体，需要对不合要求的个体进行惩罚'''
     vehicle_num = 0
@@ -183,7 +181,7 @@ def calRouteLen(routes,dataDict=train_opt['dataDict']):
             return train_opt['max'],train_opt['max']
         paraDistance = 0
         for i,j in zip(eachRoute[0::], eachRoute[1::]):
-            paraDistance += calDist(dataDict['Node'][i], dataDict['Node'][j])
+            paraDistance += train_opt['dataDict']['edges'][dataDict['Node'][i]][dataDict['Node'][j]]
         paraServiceTime = (len(eachRoute)-2) * dataDict['ServiceTime'] + int(paraDistance / dataDict['speed'] * 60)
         if paraDistance > dataDict[vehicle_type]['MaxMileage'] or paraServiceTime > dataDict['MaxServiceTime']:
             return train_opt['max'],train_opt['max']
@@ -257,7 +255,7 @@ def crossover(ind1, ind2):
 
 #-----------------------------------
 ## 突变操作
-def opt(route,dataDict=train_opt['dataDict'], k=2):
+def opt(route, k=2):
     # 用2-opt算法优化路径
     # 输入：
     # route -- sequence，记录路径
@@ -398,6 +396,7 @@ def calLoad(routes):
 
 def Genetic(gui):
     #-----------------------------------
+    start = time.time()
     ## 问题定义
     creator.create('FitnessMin', base.Fitness, weights=(-1.0,)) # 最小化问题
     # 给个体一个routes属性用来记录其表示的路线
@@ -462,6 +461,7 @@ def Genetic(gui):
     print(calRouteLen(distributionPlan))
     print('各辆车上负载为：')
     print(calLoad(distributionPlan))
+    print('算法消耗时间：{0}'.format(time.time() - start))
 
 #GUI窗口类
 class Control():
@@ -484,7 +484,6 @@ class ThreadClient():
     def starting(self):
         self.thread = threading.Thread(target = Genetic(self.gui))
         self.thread.start()
-
 
 create_Data_dict(train_opt['data_path'])
 
