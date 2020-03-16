@@ -1,21 +1,59 @@
 import json
 import random
+import time
 import numpy as np
 from copy import deepcopy
 
+
+train_opt={
+    'epoch' : 4,#迭代次数
+    'data_path' : './graph.json',
+    'log_file' : './log',
+    'checkpoint' : False,#检查点
+    'max' : 9999999,
+    'file_path' : './checkpoint.json',
+    'dataDict' : {
+        'Vehicle_type_num' : 2,
+        0 : {
+            'MaxLoad' : 30.0,#车辆最大负载
+            'MaxMileage' : 400,#最大巡回里程
+            'Num' : 12
+            },
+        1 : {
+            'MaxLoad' : 12.0,
+            'MaxMileage' : 400,#最大巡回里程
+            'Num' : 10
+            },
+        'ServiceTime' : 5,#服务时间，单位分钟
+        'MaxServiceTime' : 480,#单位分钟
+        'speed' : 60#单位千米/小时
+    }
+}
+
+
 class Tabu:
-    def __init__(self,tabulen=100,preparelen=20):
-        self.tabulen=tabulen
-        self.preparelen=preparelen
-        #self.city,self.cityids,self.stid=self.loadcity2()  #我直接把他的数据放到代码里了
-        self.city,self.edges = self.loadcity()
-        
-        self.route=self.randomroute()
-        self.tabu=[]
-        self.prepare=[]
-        self.curroute=self.route.copy()
-        self.bestcost=self.costroad(self.route)
-        self.bestroute=self.route
+    def __init__(self):
+        if train_opt['checkpoint']:
+            with open(train_opt['file_path'],'r',encoding = 'utf-8') as f_reader:
+                checkpoint = json.load(f_reader)
+                self.Need = checkpoint['Need']
+                global start_epoch
+                start_epoch = checkpoint['start_epoch']
+                self.city = {}
+                for id, need in zip(checkpoint['cityID'], checkpoint['need']):
+                    self.city[id] = need
+                self.edges = checkpoint['edges']
+                self.route = checkpoint['curroute']
+                self.bestroute = checkpoint['bestroute']
+                self.bestcost = checkpoint['bestcost']
+                self.curcost = checkpoint['curcost']
+        else:
+            self.Need = []
+            self.curcost = 0
+            self.city,self.edges = self.loadcity()
+            self.route=self.randomroute()
+            self.bestcost=self.evaluate(self.route)
+            self.bestroute=self.route
 
     def dijkstra(self,s,edges,city):
         V = len(city)
@@ -45,11 +83,12 @@ class Tabu:
 
     def loadcity(self,json_path="./graph.json"):
         city = {}
-        #cityid=[]
         with open(json_path,'r',encoding='utf-8') as f:
             js=json.load(f)
             for vex in list(js['vertexes']):
                 city[vex['id']] = vex['need']
+                if vex['need'] > 0.0:
+                    self.Need.append(vex['id'])
         _l=len(city)
         edges = np.ones((_l,_l),int) * train_opt['max']
         with open(json_path,'r',encoding='utf-8') as f:
@@ -59,15 +98,7 @@ class Tabu:
                 edges[edge['pointId2']][edge['pointId1']]=edge['distance']
         for i in range(_l):
             edges = self.dijkstra(i,edges,city)
-
-
-        """
-        for line in open(f): 
-            place,lon,lat = line.strip().split(" ") 
-            city[int(place)]=float(lon),float(lat) #导入城市的坐标 
-            cityid.append(int(place))
-        return city,cityid,stid
-        """
+        print('结点总数：{1}，需配送结点数目：{0}'.format(len(self.Need),_l))
         return city,edges
 
     def decodeInd(self, route):
@@ -78,11 +109,12 @@ class Tabu:
         routes = []
         for i,j in zip(zeroIdx[0::], zeroIdx[1::]):
             routes.append(route[i:j]+[0])
+        while [0,0] in routes:
+            routes.remove([0,0])
         return routes
 
-    def costroad(self,road):
+    def costroad(self,routes):
         #计算当前路径的长度 与原博客里的函数功能相同
-        routes = self.decodeInd(road)
         distance = 0
         vehicle_type = 0
         vehicle_num = 0
@@ -99,66 +131,75 @@ class Tabu:
             if vehicle_num >= train_opt['dataDict'][vehicle_type]['Num']:
                 vehicle_num = 0
                 vehicle_type += 1
-        """
-        d=-1
-        st=0,0
-        cur=0,0
-        city=self.city
-        for v in road:
-            if d==-1:
-                st=city[v]
-                cur=st
-                d=0
-            else:
-                d+=((cur[0]-city[v][0])**2+(cur[1]-city[v][1])**2)**0.5 #计算所求解的距离，这里为了简单，视作二位平面上的点，使用了欧式距离
-                cur=city[v]
-        d+=((cur[0]-st[0])**2+(cur[1]-st[1])**2)**0.5
-        """
         return distance
+
+    def loadPenalty(self,routes):
+        '''辅助函数，对不合负载要求的个体进行惩罚'''
+        vehicle_num = 0
+        vehicle_type = 0
+        # 计算每条路径的负载
+        for eachRoute in routes:
+            if vehicle_type >= train_opt['dataDict']['Vehicle_type_num']:
+                return train_opt['max']
+            routeLoad = np.sum([self.city[i] for i in eachRoute])
+            if routeLoad > train_opt['dataDict'][vehicle_type]['MaxLoad']:
+                return train_opt['max']
+            vehicle_num += 1
+            if vehicle_num >= train_opt['dataDict'][vehicle_type]['Num']:
+                vehicle_num = 0
+                vehicle_type += 1
+        return 0
+
+    def evaluate(self,road):
+        '''评价函数，返回解码后路径的总损失'''
+        routes = self.decodeInd(road) # 将个体解码为路线
+        totalDistance = self.costroad(routes)
+        totalPenalty = self.loadPenalty(routes)
+        if totalDistance < train_opt['max'] and totalPenalty < train_opt['max']:
+            return totalDistance + totalPenalty
+        else:
+            return train_opt['max']
+
     def randomroute(self):
         #产生一条随机的路
-        """
-        stid=self.stid
-        rt=list(self.city.keys().copy())
-        random.shuffle(rt)
-        rt.pop(rt.index(stid))
-        rt.insert(0,stid)
-        """
-        nCustomer = len(self.city) - 1 # 顾客数量
-        perm = np.random.permutation(nCustomer) + 1 # 生成顾客的随机排列,注意顾客编号为1--n
+        nCustomer = len(self.Need) # 顾客数量
+        perm = self.Need.copy()
+        np.random.shuffle(perm)
         pointer = 0 # 迭代指针
         lowPointer = 0 # 指针指向下界
+        perdistance = 0
         vehicle_num = 0
         vehicle_type = 0
         permSlice = []
         # 当指针不指向序列末尾时
         while pointer < nCustomer -1:
             vehicleLoad = 0
+            Mileage = 0
+            curcity = 0
             # 当不超载时，继续装载
-            while vehicleLoad < train_opt['dataDict'][vehicle_type]['MaxLoad'] and (pointer < nCustomer -1):
+            while vehicleLoad + self.city[perm[pointer]] < train_opt['dataDict'][vehicle_type]['MaxLoad'] and pointer < nCustomer -1 \
+                and Mileage + self.edges[curcity][perm[pointer]] + self.edges[perm[pointer]][0] < \
+                train_opt['dataDict'][vehicle_type]['MaxMileage']:
                 vehicleLoad += self.city[perm[pointer]]
+                Mileage += self.edges[curcity][perm[pointer]]
+                curcity = perm[pointer]
                 pointer += 1
             vehicle_num += 1
-            if lowPointer + 1 < pointer:#在负载上限上只取部分，生成一条路径
-                tempPointer = np.random.randint(lowPointer+1, pointer)
-                permSlice.append(perm[lowPointer:tempPointer].tolist())
-                lowPointer = tempPointer
-                pointer = tempPointer
-            else:
-                pointer = nCustomer
-                permSlice.append(perm[lowPointer:pointer].tolist())
-                break
             if vehicle_num >= train_opt['dataDict'][vehicle_type]['Num']:
                 vehicle_num = 0
                 vehicle_type += 1
             if vehicle_type >= train_opt['dataDict']['Vehicle_type_num']:
-                permSlice.append(perm[pointer:nCustomer -1].tolist())
+                permSlice.append(perm[pointer:nCustomer -1])
                 break
+            else:
+                permSlice.append(perm[lowPointer:pointer])
+                lowPointer = pointer
         # 将路线片段合并为染色体
         route = [0]
         for eachRoute in permSlice:
-            route = route + eachRoute + [0]
+            route += eachRoute + [0]
         return route
+
     def opt(self, route, k=2):
         # 用2-opt算法优化路径
         # 输入：
@@ -166,108 +207,94 @@ class Tabu:
         # 输出： 优化后的路径optimizedRoute及其路径长度
         nCities = len(route) # 城市数
         optimizedRoute = route # 最优路径
-        minDistance = self.costroad(route) # 最优路径长度
+        minDistance = self.evaluate(route) # 最优路径长度
         for i in range(1,nCities-2):
             for j in range(i+k, nCities):
                 if j-i == 1:
                     continue
                 reversedRoute = route[:i]+route[i:j][::-1]+route[j:]# 翻转后的路径
-                reversedRouteDist = self.costroad(reversedRoute)
+                reversedRouteDist = self.evaluate(reversedRoute)
                 # 如果翻转后路径更优，则更新最优解
                 if  reversedRouteDist < minDistance:
                     minDistance = reversedRouteDist
                     optimizedRoute = reversedRoute
+                    #return optimizedRoute
         return optimizedRoute
+
     def step(self):
         #搜索一步路找出当前下应该搜寻的下一条路
-        routes=self.curroute
-        i = 0
+        routes=self.route
         pre_routes = self.opt(routes)
-        if int(self.costroad(pre_routes)) not in self.tabu:    #产生不在禁忌表中的路径
-            self.prepare.append(pre_routes.copy())
-            i += 1
-        while i < self.preparelen:     #产生候选路径
-            pre_routes = self.randomroute()
-            print('正在生成第{0}条候选路径'.format(i))
-            v = 0
-            while int(self.costroad(pre_routes)) in self.tabu:
-                pre_routes = self.randomroute()
-                if v % 500 == 0:
-                    print('随机生成：第{0}条路径'.format(v))
-                v += 1
-            print(pre_routes)
-            print('该路径长度{0}'.format(self.costroad(pre_routes)))
-            self.prepare.append(pre_routes.copy())
-            i += 1
-        cal=[]
-        for route in self.prepare:
-            cal.append(self.costroad(route))
-        mincal=min(cal)
-        min_route=self.prepare[cal.index(mincal)]     #选出候选路径里最好的一条
-        if mincal<self.bestcost:
-            self.bestcost=mincal
-            self.bestroute=min_route.copy()      #如果他比最好的还要好，那么记录下来
-        self.tabu.append(mincal)#int(mrt))    #这里本来要加 mrt的 ，可是mrt是路径，要对比起来麻烦，这里假设每条路是由长度决定的
-                                    #也就是说 每个路径和他的长度是一一对应，这样比对起来速度快点，当然这样可能出问题，更好的有待研究
-        self.curroute=min_route   #用候选里最好的做下次搜索的起点
-        self.prepare=[]
-        if len(self.tabu)>self.tabulen:
-            self.tabu.pop(0)
+        pre_cal = self.evaluate(pre_routes)
+        self.bestcost = pre_cal
+        print('step:{0},curcost:{1},bestcost:{2}'.format(0,pre_cal,self.bestcost))
+        v = 1
+        while pre_cal != self.curcost:    #产生不在禁忌表中的路径
+            self.curcost = pre_cal
+            pre_routes = self.opt(pre_routes)
+            pre_cal = self.evaluate(pre_routes)
+            if pre_cal < self.bestcost:
+                self.bestcost = pre_cal
+                self.bestroute = pre_routes.copy()      #如果他比最好的还要好，那么记录下来
+            print('step:{0},curcost:{1},bestcost:{2}'.format(v,pre_cal,self.bestcost))
+            v += 1
 
-import timeit
-train_opt={
-    'epoch' : 400,#迭代次数
-    'data_path' : './graph.json',
-    'log_file' : './log',
-    'popsize' : 200,#种群大小
-    'checkpoint' : False,#检查点
-    'max' : 9999999,
-    'file_path' : './checkpoint.pkl',
-    'dataDict' : {
-        'Vehicle_type_num' : 2,
-        0 : {
-            'MaxLoad' : 30.0,#车辆最大负载
-            'MaxMileage' : 400,#最大巡回里程
-            'Num' : 18
-            },
-        1 : {
-            'MaxLoad' : 12.0,
-            'MaxMileage' : 400,#最大巡回里程
-            'Num' : 10
-            },
-        'ServiceTime' : 5,#服务时间，单位分钟
-        'MaxServiceTime' : 480,#单位分钟
-        'speed' : 60#单位千米/小时
-    }
-}
+class MyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        else:
+            return super(MyEncoder, self).default(obj)
+
+start_epoch = 0
 t=Tabu()
-#print('ok')
-#print(t.city)
-#print(t.route)
-print(t.bestcost)
-print(t.curroute)
-for i in range(10):
+np.random.seed(0)
+start = time.time()
+for i in range(start_epoch, train_opt['epoch']):
+    t.route = t.randomroute()
     t.step()
-    print(t.bestcost)
-    print(t.bestroute)
-    #print(t.curroute)
-
-print('ok')
-#print(timeit.timeit(stmt="t.step()", number=1000,globals=globals()))
-print('ok')
+    with open(train_opt['file_path'], 'w', encoding = 'utf-8') as f_write:
+        checkpoint = {}
+        checkpoint['start_epoch'] = i
+        checkpoint['Need'] = t.Need
+        checkpoint['curcost'] = t.curcost
+        checkpoint['bestcost'] = t.bestcost
+        checkpoint['cityID'] = list(t.city.keys())
+        checkpoint['need'] = list(t.city.values())
+        checkpoint['edges'] = t.edges
+        checkpoint['curroute'] = t.route
+        checkpoint['bestroute'] = t.bestroute
+        json.dump(checkpoint, f_write, cls = MyEncoder)
+print(t.decodeInd(t.bestroute))
+print(t.bestcost)
+print('耗时：{0}'.format(time.time()-start))
 """
-from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
 
-x=[]
-y=[]
-print("最优路径长度:",t.bestcost)
-for i in t.bestroute:
-    x0,y0=t.city[i]
-    x.append(x0)
-    y.append(y0)
-x.append(x[0])
-y.append(y[0])
-plt.plot(x,y)
-plt.scatter(x,y)
+x = range(train_opt['epoch'])
+plt.title('Tabu')
+plt.plot(x, bestcost, label = 'bestcost')
+plt.plot(x, curcost, label = 'curcost')
 plt.show()
+
+bestroute = [[0, 26, 178, 129, 155, 139, 56, 97, 121, 25, 38, 58, 48, 0],
+[0, 176, 158, 79, 168, 148, 11, 31, 171, 107, 191, 7, 103, 99, 1, 0],
+[0, 6, 106, 166, 16, 150, 45, 131, 177, 61, 161, 9, 102, 160, 92, 0],
+[0, 12, 138, 17, 183, 37, 72, 90, 167, 70, 62, 74, 20, 111, 41, 0],
+[0, 146, 147, 54, 84, 43, 194, 197, 193, 179, 174, 180, 108, 122, 0],
+[0, 133, 152, 145, 75, 22, 82, 123, 100, 89, 40, 186, 19, 173, 134, 0],
+[0, 124, 14, 98, 15, 49, 73, 188, 67, 3, 13, 33, 165, 198, 93, 182, 199, 0],
+[0, 189, 52, 34, 2, 55, 156, 94, 44, 181, 132, 53, 0],
+[0, 66, 196, 172, 60, 57, 91, 86, 157, 78, 164, 141, 144, 96, 28, 0],
+[0, 21, 76, 64, 10, 110, 85, 77, 187, 119, 117, 36, 170, 136, 0],
+[0, 105, 125, 175, 112, 5, 4, 114, 128, 153, 95, 130, 29, 0],
+[0, 63, 71, 88, 190, 154, 39, 23, 104, 184, 118, 127, 140, 8, 0],
+[0, 185, 81, 135, 101, 47, 0],
+[0, 87, 69, 0],
+[0, 143, 35, 169, 24, 0]]
+bestcost = 2292
 """

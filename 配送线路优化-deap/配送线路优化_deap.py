@@ -5,9 +5,6 @@ import matplotlib.pyplot as plt
 from deap import base, tools, creator, algorithms
 import random
 import matplotlib
-#from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-#from PyQt5 import QtCore, QtWidgets, QtGui
-#from PyQt5.QtWidgets import QDialog, QPushButton, QVBoxLayout
 matplotlib.use('TkAgg')
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.pylab import mpl
@@ -53,7 +50,7 @@ train_opt={
     }
 }
 from copy import deepcopy
-
+Need = []
 
 #-----------------------------------
 def dijkstra(s):
@@ -88,21 +85,25 @@ def create_Data_dict(json_path):
         js=json.load(f)
         train_opt['dataDict']['Node']=[]
         train_opt['dataDict']['Demand']=[]
-        for vex in list(js['vertexes']):
+        _l=len(js['vertexes'])
+        for i, vex in enumerate(js['vertexes']):
             train_opt['dataDict']['Node'].append(vex['id'])
             train_opt['dataDict']['Demand'].append(vex['need'])
-        _l=len(train_opt['dataDict']['Node'])
+            if vex['need'] != 0.0:
+                Need.append(i)
         train_opt['dataDict']['edges']=np.ones((_l,_l),int) * train_opt['max']
         for edge in list(js['edges']):
             train_opt['dataDict']['edges'][edge['pointId1']][edge['pointId2']]=edge['distance']
             train_opt['dataDict']['edges'][edge['pointId2']][edge['pointId1']]=edge['distance']
+    print('结点总数：{1}，需配送结点数目：{0}'.format(len(Need),_l))
     for i in range(_l):
         dijkstra(i)
 
 def genInd(dataDict = train_opt['dataDict']):
-    '''生成个体， 对我们的问题来说，困难之处在于车辆数目是不定的'''
-    nCustomer = len(dataDict['Node']) - 1 # 顾客数量
-    perm = np.random.permutation(nCustomer) + 1 # 生成顾客的随机排列,注意顾客编号为1--n
+    '''生成个体'''
+    nCustomer = len(Need) # 顾客数量
+    perm = Need.copy()
+    np.random.shuffle(perm)
     pointer = 0 # 迭代指针
     lowPointer = 0 # 指针指向下界
     vehicle_num = 0
@@ -111,34 +112,45 @@ def genInd(dataDict = train_opt['dataDict']):
     # 当指针不指向序列末尾时
     while pointer < nCustomer -1:
         vehicleLoad = 0
+        Mileage = 0
+        curcity = 0
         # 当不超载时，继续装载
-        while vehicleLoad < dataDict[vehicle_type]['MaxLoad'] and (pointer < nCustomer -1):
+        while vehicleLoad + dataDict['Demand'][perm[pointer]] < dataDict[vehicle_type]['MaxLoad'] and pointer < nCustomer -1 \
+            and Mileage + dataDict['edges'][dataDict['Node'][curcity]][dataDict['Node'][perm[pointer]]] + \
+            dataDict['edges'][dataDict['Node'][perm[pointer]]][0] < dataDict[vehicle_type]['MaxMileage']:
             vehicleLoad += dataDict['Demand'][perm[pointer]]
+            Mileage += dataDict['edges'][dataDict['Node'][curcity]][dataDict['Node'][perm[pointer]]]
+            curcity = perm[pointer]
             pointer += 1
         vehicle_num += 1
+        '''
         if lowPointer + 1 < pointer:#在负载上限上只取部分，生成一条路径
             tempPointer = np.random.randint(lowPointer+1, pointer)
-            permSlice.append(perm[lowPointer:tempPointer].tolist())
+            permSlice.append(perm[lowPointer:tempPointer])
             lowPointer = tempPointer
             pointer = tempPointer
         else:
             pointer = nCustomer
-            permSlice.append(perm[lowPointer:pointer].tolist())
+            permSlice.append(perm[lowPointer:pointer])
             break
+        '''
         if vehicle_num >= dataDict[vehicle_type]['Num']:
             vehicle_num = 0
             vehicle_type += 1
         if vehicle_type >= dataDict['Vehicle_type_num']:
-            permSlice.append(perm[pointer:nCustomer -1].tolist())
+            permSlice.append(perm[pointer:nCustomer -1])
             break
+        else :
+            permSlice.append(perm[lowPointer:pointer])
+            lowPointer = pointer
     # 将路线片段合并为染色体
     ind = [0]
     for eachRoute in permSlice:
-        ind = ind + eachRoute + [0]
+        for i in eachRoute:
+            ind.append(dataDict['Node'][i])
+        ind.append(0)
     return ind
 #-----------------------------------
-## 评价函数
-# 染色体解码
 ## 评价函数
 # 染色体解码
 def decodeInd(ind):
@@ -182,7 +194,7 @@ def calRouteLen(routes,dataDict=train_opt['dataDict']):
         paraDistance = 0
         for i,j in zip(eachRoute[0::], eachRoute[1::]):
             paraDistance += train_opt['dataDict']['edges'][dataDict['Node'][i]][dataDict['Node'][j]]
-        paraServiceTime = (len(eachRoute)-2) * dataDict['ServiceTime'] + int(paraDistance / dataDict['speed'] * 60)
+        paraServiceTime = (len(eachRoute)-2) * dataDict['ServiceTime'] + paraDistance // dataDict['speed'] * 60
         if paraDistance > dataDict[vehicle_type]['MaxMileage'] or paraServiceTime > dataDict['MaxServiceTime']:
             return train_opt['max'],train_opt['max']
         vehicle_num += 1
@@ -194,7 +206,7 @@ def calRouteLen(routes,dataDict=train_opt['dataDict']):
     return totalDistance , round(totalServiceTime / 60 , 2)
 
 def evaluate(ind):
-    '''评价函数，返回解码后路径的总长度，'''
+    '''评价函数，返回解码后路径的总损失，'''
     routes = decodeInd(ind) # 将个体解码为路线
     totalDistance , totalServiceTime = calRouteLen(routes)
     return (totalDistance + totalServiceTime + loadPenalty(routes)),
@@ -492,9 +504,6 @@ root = Tk()
 tool = ThreadClient(root)
 
 tool.gui.canvs.get_tk_widget().pack(side=TOP, fill=BOTH, expand=1)
-
-
-#canvs.get_tk_widget().pack(side=TOP, fill=BOTH, expand=1)
 
 root.mainloop()
 

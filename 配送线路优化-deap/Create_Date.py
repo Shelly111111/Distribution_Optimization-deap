@@ -96,6 +96,7 @@ for i in range(node):
             edge['note'] = "备注"
             DataDict['edges'].append(edge)
     DataDict['vertexes'].append(vex)
+DataDict['vertexes'][0]['need'] = 0.0
 with open('graph.json','w', encoding='utf-8') as js:
     json.dump(DataDict,js,cls=MyEncoder)
 plt.axis('scaled')
